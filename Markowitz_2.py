@@ -10,7 +10,7 @@ import gurobipy as gp
 import warnings
 import argparse
 import sys
-
+from scipy.optimize import minimize
 """
 Project Setup
 """
