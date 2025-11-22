@@ -62,7 +62,9 @@ class EqualWeightPortfolio:
         """
         TODO: Complete Task 1 Below
         """
-
+        num_assets = len(assets)
+        self.portfolio_weights[assets] = 1.0 / num_assets
+        self.portfolio_weights[self.exclude] = 0
         """
         TODO: Complete Task 1 Above
         """
@@ -113,8 +115,15 @@ class RiskParityPortfolio:
         """
         TODO: Complete Task 2 Below
         """
+        for i in range(self.lookback + 1, len(df)):
+            rolling_returns = df_returns[assets].iloc[i - self.lookback : i]
+            cov = rolling_returns.cov()
+            vols = np.sqrt(np.diag(cov)) + 1e-8
+            inv_vol = 1.0 / vols
+            weights = inv_vol / inv_vol.sum()
+            self.portfolio_weights.loc[df.index[i], assets] = weights
 
-
+        self.portfolio_weights[self.exclude] = 0
 
         """
         TODO: Complete Task 2 Above
@@ -188,10 +197,18 @@ class MeanVariancePortfolio:
                 TODO: Complete Task 3 Below
                 """
 
-                # Sample Code: Initialize Decision w and the Objective
-                # NOTE: You can modify the following code
-                w = model.addMVar(n, name="w", ub=1)
-                model.setObjective(w.sum(), gp.GRB.MAXIMIZE)
+                w = model.addVars(n, lb=0.0, ub=1.0, name="w")
+
+                quad_expr = gp.QuadExpr()
+                for i in range(n):
+                    for j in range(n):
+                        quad_expr.add(Sigma[i, j] * w[i] * w[j])
+
+                lin_expr = gp.quicksum(mu[i] * w[i] for i in range(n))
+
+                model.setObjective(0.5 * self.gamma * quad_expr - lin_expr, gp.GRB.MINIMIZE)
+                model.addConstr(gp.quicksum(w[i] for i in range(n)) == 1, name="budget")
+                solution = [0.0] * n
 
                 """
                 TODO: Complete Task 3 Above
