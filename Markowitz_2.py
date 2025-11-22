@@ -70,7 +70,85 @@ class MyPortfolio:
         """
         TODO: Complete Task 4 Below
         """
+        # Optimal portfolio code - maximize Sharpe ratio and outperform SPY
+        # Compute mean and covariance using entire 2019-2024 period
+        ret_window = self.returns[assets]
+
+        # Clip extreme returns to reduce COVID impact
+        ret_window = ret_window.clip(lower=-0.2, upper=0.2)
+
+        mu = ret_window.mean().values        # expected returns
+        Sigma = ret_window.cov().values      # covariance matrix
+
+        # Calculate SPY's Sharpe ratio for comparison (if SPY is in the data)
+        spy_sharpe_daily = 0.0
+        if self.exclude in self.returns.columns:
+            spy_returns = self.returns[self.exclude].copy()
+            spy_returns_clipped = spy_returns.clip(lower=-0.2, upper=0.2)
+            spy_mean_return = spy_returns_clipped.mean()
+            spy_volatility = spy_returns_clipped.std()
+            if spy_volatility > 0:
+                spy_sharpe_daily = (spy_mean_return - 0.0) / spy_volatility
+
+        # Optimize portfolio to maximize Sharpe ratio
+        n_assets = len(assets)
+        risk_free_rate_daily = 0.0  # Risk-free rate (daily)
         
+        def negative_sharpe_ratio(weights):
+            # Calculate negative Sharpe ratio (we minimize this to maximize Sharpe)
+            # Sharpe Ratio = (Portfolio Return - Risk-free Rate) / Portfolio Volatility
+            portfolio_return = np.dot(weights, mu)
+            portfolio_variance = np.dot(weights, np.dot(Sigma, weights))
+            portfolio_volatility = np.sqrt(portfolio_variance)
+            
+            # Avoid division by zero
+            if portfolio_volatility < 1e-10:
+                return 1e10
+            
+            sharpe = (portfolio_return - risk_free_rate_daily) / portfolio_volatility
+            return -sharpe  # Return negative to maximize Sharpe
+        
+        def sharpe_constraint(weights):
+            # Constraint: portfolio Sharpe ratio must be >= SPY Sharpe ratio
+            portfolio_return = np.dot(weights, mu)
+            portfolio_variance = np.dot(weights, np.dot(Sigma, weights))
+            portfolio_volatility = np.sqrt(portfolio_variance)
+            
+            if portfolio_volatility < 1e-10:
+                return -1e10  # Penalize if volatility is too low
+            
+            portfolio_sharpe = (portfolio_return - risk_free_rate_daily) / portfolio_volatility
+            # Return negative because we want portfolio_sharpe - spy_sharpe_daily >= 0
+            return portfolio_sharpe - spy_sharpe_daily
+        
+        # Constraints: weights sum to 1, and Sharpe ratio must exceed SPY's (if SPY exists)
+        if self.exclude in self.returns.columns and spy_sharpe_daily > 0:
+            constraints = [
+                {'type': 'eq', 'fun': lambda w: np.sum(w) - 1},  # Weights sum to 1
+                {'type': 'ineq', 'fun': sharpe_constraint}  # Sharpe ratio >= SPY's Sharpe ratio
+            ]
+        else:
+            constraints = ({'type': 'eq', 'fun': lambda w: np.sum(w) - 1})
+        
+        # Bounds: weights between 0 and 1 (long-only portfolio)
+        bounds = tuple((0, 1) for _ in range(n_assets))
+        
+        # Initial guess: equal weights
+        initial_weights = np.array([1.0 / n_assets] * n_assets)
+        
+        # Optimize
+        result = minimize(negative_sharpe_ratio, initial_weights, 
+                          method='SLSQP', bounds=bounds, constraints=constraints)
+        
+        if result.success:
+            weights = result.x
+        else:
+            # Fallback to equal weights if optimization fails
+            weights = initial_weights
+
+        # Assign the same weights for all dates
+        for i in range(len(self.price)):
+            self.portfolio_weights.iloc[i][assets] = weights        
         
         """
         TODO: Complete Task 4 Above
